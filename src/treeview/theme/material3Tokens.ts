@@ -53,8 +53,26 @@ export const defaultThemeCSS = `
     color: var(--tree-selected-text);
   }
 
+  .tree-node-row:focus,
   .tree-node-row:focus-visible {
     box-shadow: 0 0 0 2px var(--tree-focus-ring) inset;
+  }
+
+  .tree-node-children-wrapper {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out;
+    opacity: 0;
+    overflow: hidden;
+  }
+
+  .tree-node-children-wrapper.tree-expanded {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+
+  .tree-node-children-inner {
+    min-height: 0;
   }
 
   .tree-node-children {
@@ -79,4 +97,30 @@ export const defaultThemeCSS = `
     padding: 2px 4px;
     outline: none;
   }
+
+  .tree-virtual-row {
+    animation: tree-virtual-expand 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .tree-virtual-padding {
+    transition: padding 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes tree-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  @keyframes tree-virtual-expand {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 `;
+
+

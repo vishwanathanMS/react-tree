@@ -1,6 +1,6 @@
-import React, { useImperativeHandle, forwardRef, useRef, useState, useCallback, useMemo } from 'react';
-import { TreeViewProps, TreeNode } from './types/tree.types';
-import { TreeProvider } from './context/TreeContext';
+import React, { useImperativeHandle, forwardRef, useRef, useCallback, useMemo } from 'react';
+import { TreeViewProps, TreeNode, TreeItemSlotContext } from './types/tree.types';
+import { TreeProvider, TreeContextType } from './context/TreeContext';
 import { useTreeTheme } from './theme/useTreeTheme';
 import { useTreeData } from './hooks/useTreeData';
 import { useTreeExpansion } from './hooks/useTreeExpansion';
@@ -9,8 +9,10 @@ import { useTreeCheckbox } from './hooks/useTreeCheckbox';
 import { useTreeEditing } from './hooks/useTreeEditing';
 import { useTreeDragDrop } from './hooks/useTreeDragDrop';
 import { useTreeKeyboard } from './hooks/useTreeKeyboard';
-import { TreeNode as TreeNodeComponent, TreeNodeChildItem } from './components/molecules/TreeNode';
-
+import { useVirtualization } from './hooks/useVirtualization';
+import { TreeNode as TreeNodeComponent } from './components/molecules/TreeNode';
+import { VirtualTreeList } from './components/organisms/VirtualTreeList';
+import { TreeviewItemContent, TreeViewItemContent } from './components/slots/TreeviewItemSlot';
 export interface TreeViewRef {
   expand: (id: string | number) => void;
   collapse: (id: string | number) => void;
@@ -21,40 +23,21 @@ export interface TreeViewRef {
   getNode: (id: string | number) => TreeNode | undefined;
 }
 
-function createNestedSlice(visibleNodes: { node: TreeNode; depth: number }[]): TreeNodeChildItem[] {
-  const result: TreeNodeChildItem[] = [];
-  const stack: { item: TreeNodeChildItem; depth: number }[] = [];
-
-  for (const { node, depth } of visibleNodes) {
-    const item: TreeNodeChildItem = { node, children: [] };
-
-    while (stack.length > 0 && stack[stack.length - 1].depth >= depth) {
-      stack.pop();
-    }
-
-    if (stack.length === 0) {
-      result.push(item);
-    } else {
-      const parent = stack[stack.length - 1].item;
-      if (!parent.children) parent.children = [];
-      parent.children.push(item);
-    }
-
-    stack.push({ item, depth });
-  }
-
-  return result;
-}
-
 export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
   useTreeTheme();
 
   const {
     dataSource,
+    query,
     fieldMapping,
+    selectable = false,
     multiple = false,
+    checkable = false,
+    checkOnClick = false,
+    loadOnDemand = false,
     editable = false,
     draggable = false,
+    expandOnClick = false,
     defaultExpanded,
     expanded: controlledExpanded,
     selected: controlledSelected,
@@ -70,40 +53,102 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     itemHeight = 28,
     height = 400,
     sortOrder,
+    children,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Parse children for compound slot renderer (<TreeviewItemContent>)
+  const slotRenderer = useMemo(() => {
+    if (!children) return undefined;
+    let foundSlotFn: ((ctx: TreeItemSlotContext) => React.ReactNode) | undefined;
+
+    React.Children.forEach(children, (child) => {
+      if (React.isValidElement(child)) {
+        const type = child.type as any;
+        if (
+          type === TreeviewItemContent ||
+          type === TreeViewItemContent ||
+          type?.displayName === 'TreeviewItemContent' ||
+          type?.name === 'TreeviewItemContent' ||
+          type?.name === 'TreeViewItemContent'
+        ) {
+          const slotProps = child.props as any;
+          if (typeof slotProps.children === 'function') {
+            foundSlotFn = slotProps.children;
+          } else if (slotProps.children) {
+            foundSlotFn = () => slotProps.children;
+          }
+        }
+      }
+    });
+
+    return foundSlotFn;
+  }, [children]);
 
   // 1. Expansion state
   const expansion = useTreeExpansion(defaultExpanded, controlledExpanded, onNodeExpand, onNodeCollapse, (id) => nodeMap.get(id));
   
   // 2. Data
-  const { treeData, nodeMap, parentMap, visibleNodes, updateNode, moveNode, setNodeLoading, appendChildren } = useTreeData(dataSource, fieldMapping, expansion.expanded, sortOrder);
+  const {
+    treeData,
+    nodeMap,
+    parentMap,
+    visibleNodes,
+    isLoadingData,
+    updateNode,
+    moveNode,
+    setNodeLoading,
+    appendChildren,
+    fetchRemoteChildren,
+  } = useTreeData(dataSource, fieldMapping, expansion.expanded, sortOrder, query, loadChildren);
 
-  // 3. Selection
-  const selection = useTreeSelection(multiple, controlledSelected, onNodeSelect, (id) => nodeMap.get(id));
-
-  // 4. Checkbox
+  // 3. Selection & Checkbox Unified State
+  const isMultiSelection = multiple || checkable;
+  const selection = useTreeSelection(isMultiSelection, controlledSelected, onNodeSelect, (id) => nodeMap.get(id));
   const checkbox = useTreeCheckbox(nodeMap, parentMap, controlledChecked, onNodeCheck);
 
-  // 5. Drag & Drop
+  // Unified Toggle Handlers
+  const handleToggleCheck = useCallback(
+    (nodeId: string | number) => {
+      checkbox.toggleCheck(nodeId);
+      if (checkable || selectable) {
+        selection.toggleSelect(nodeId, true);
+      }
+    },
+    [checkbox, selection, checkable, selectable]
+  );
+
+  const handleToggleSelect = useCallback(
+    (nodeId: string | number, multiSelect?: boolean) => {
+      selection.toggleSelect(nodeId, multiSelect);
+      if (checkable) {
+        checkbox.toggleCheck(nodeId);
+      }
+    },
+    [selection, checkbox, checkable]
+  );
+
+  // 4. Drag & Drop
   const dnd = useTreeDragDrop(draggable, onNodeDrop, (id) => nodeMap.get(id));
 
-  // 6. Editing
+  // 5. Editing
   const editing = useTreeEditing(editable, onNodeEdit, (id) => nodeMap.get(id));
 
-  // Uncontrolled support & Async Loading
+  // Dynamic Child Loading & Expansion
   const handleToggleExpand = useCallback(async (nodeId: string | number) => {
     const node = nodeMap.get(nodeId);
     if (!node) return;
+
+    const needsLoad = (!node.children || node.children.length === 0) && (node.hasChildren || loadChildren || loadOnDemand);
     
-    if (!expansion.expanded.has(nodeId) && (!node.children || node.children.length === 0) && node.hasChildren && loadChildren) {
+    if (!expansion.expanded.has(nodeId) && needsLoad) {
       setNodeLoading(nodeId, true);
       try {
-        const children = await loadChildren(node);
-        appendChildren(nodeId, children);
+        const childrenList = await fetchRemoteChildren(node);
+        appendChildren(nodeId, childrenList);
       } catch (e) {
-        console.error('Failed to load children', e);
+        console.error('Failed to load tree node children', e);
       } finally {
         setNodeLoading(nodeId, false);
         expansion.toggle(nodeId);
@@ -111,7 +156,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     } else {
       expansion.toggle(nodeId);
     }
-  }, [expansion, nodeMap, loadChildren, setNodeLoading, appendChildren]);
+  }, [expansion, nodeMap, loadChildren, loadOnDemand, setNodeLoading, fetchRemoteChildren, appendChildren]);
 
   const handleNodeEditInternal = useCallback((nodeId: string | number, value: string) => {
     editing.commitEdit(nodeId, value);
@@ -127,43 +172,61 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     }
   }, [dnd, onNodeDrop, moveNode]);
 
-  // 7. Keyboard
-  useTreeKeyboard(
-    containerRef, 
-    visibleNodes, 
-    selection.toggleSelect, 
-    handleToggleExpand, 
-    checkbox.toggleCheck
-  );
+  // Keyboard navigation
+  const { handleKeyDown } = useTreeKeyboard({
+    containerRef,
+    visibleNodes,
+    expandedNodes: expansion.expanded,
+    parentMap,
+    virtual,
+    itemHeight,
+    height,
+    toggleSelect: handleToggleSelect,
+    toggleExpand: handleToggleExpand,
+    toggleCheck: handleToggleCheck,
+    setEditingNodeId: editing.setEditingNodeId,
+    editable,
+  });
 
-  // Public Methods
+  // Imperative Methods
   useImperativeHandle(ref, () => ({
     expand: expansion.expand,
     collapse: expansion.collapse,
     expandAll: () => {
-      const allIds = Array.from(nodeMap.values()).filter(n => n.children?.length).map(n => n.id);
+      const allIds = Array.from(nodeMap.values()).filter(n => n.children?.length || n.hasChildren).map(n => n.id);
       allIds.forEach(id => expansion.expand(id));
     },
     collapseAll: () => {
       Array.from(expansion.expanded).forEach(id => expansion.collapse(id));
     },
-    select: (id) => selection.toggleSelect(id, false),
-    check: checkbox.toggleCheck,
-    getNode: (id) => nodeMap.get(id),
+    select: (id: string | number) => handleToggleSelect(id, false),
+    check: handleToggleCheck,
+    getNode: (id: string | number) => nodeMap.get(id),
   }));
 
+  // Combine checked and selected nodes for unified state view
+  const combinedSelected = useMemo(() => {
+    if (!checkable) return selection.selected;
+    const set = new Set(selection.selected);
+    checkbox.checkedNodes.forEach((state, id) => {
+      if (state === 'checked') set.add(id);
+    });
+    return set;
+  }, [checkable, selection.selected, checkbox.checkedNodes]);
+
   // Context Value
-  const contextValue = {
+  const contextValue: TreeContextType = {
     ...props,
     treeData,
     expandedNodes: expansion.expanded,
-    selectedNodes: selection.selected,
+    selectedNodes: combinedSelected,
     checkedNodes: checkbox.checkedNodes,
     dragState: dnd.dragState,
     editingNodeId: editing.editingNodeId,
+    slotRenderer,
     toggleExpand: handleToggleExpand,
-    toggleSelect: selection.toggleSelect,
-    toggleCheck: checkbox.toggleCheck,
+    toggleSelect: handleToggleSelect,
+    toggleCheck: handleToggleCheck,
     setDragState: dnd.setDragState,
     setEditingNodeId: editing.setEditingNodeId,
     handleNodeEdit: handleNodeEditInternal,
@@ -171,34 +234,13 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
   };
 
   // Virtualization
-  const [scrollTop, setScrollTop] = useState(0);
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
-  }, []);
+  const virtualization = useVirtualization({
+    enabled: virtual,
+    visibleNodes,
+    itemHeight,
+    height,
+  });
 
-  const { renderedNodes, topPadding, bottomPadding } = useMemo(() => {
-    if (!virtual) {
-      return { renderedNodes: visibleNodes, topPadding: 0, bottomPadding: 0 };
-    }
-
-    const totalHeight = visibleNodes.length * itemHeight;
-    const containerHeightValue = typeof height === 'number' ? height : 400;
-    const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
-    const endIndex = Math.min(visibleNodes.length - 1, Math.floor((scrollTop + containerHeightValue) / itemHeight) + 5);
-
-    const nodes = visibleNodes.slice(startIndex, endIndex + 1);
-    const top = startIndex * itemHeight;
-    const bottom = Math.max(0, totalHeight - (endIndex + 1) * itemHeight);
-
-    return { renderedNodes: nodes, topPadding: top, bottomPadding: bottom };
-  }, [visibleNodes, virtual, itemHeight, height, scrollTop]);
-
-  const nestedVirtualSlice = useMemo(() => {
-    if (!virtual) return [];
-    return createNestedSlice(renderedNodes);
-  }, [virtual, renderedNodes]);
-
-  // Render container styles based on virtual
   const containerStyle: React.CSSProperties = virtual 
     ? { height, overflowY: 'auto', outline: 'none', position: 'relative' }
     : { outline: 'none' };
@@ -209,21 +251,33 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         ref={containerRef} 
         className="tree-container"
         role="tree"
-        aria-multiselectable={multiple}
+        tabIndex={0}
+        aria-multiselectable={isMultiSelection}
         style={containerStyle}
-        onScroll={virtual ? handleScroll : undefined}
+        onScroll={virtual ? virtualization.handleScroll : undefined}
+        onKeyDown={handleKeyDown}
       >
-        {virtual ? (
-          <div style={{ paddingTop: topPadding, paddingBottom: bottomPadding }}>
-            {nestedVirtualSlice.map((item) => (
-              <TreeNodeComponent
-                key={item.node.id}
-                node={item.node}
-                depth={0}
-                nestedChildren={item.children}
-              />
-            ))}
+        {isLoadingData ? (
+          <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--tree-text)' }}>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 16,
+                height: 16,
+                border: '2px solid rgba(0,0,0,0.2)',
+                borderTopColor: 'currentColor',
+                borderRadius: '50%',
+                animation: 'tree-spin 0.8s linear infinite',
+              }}
+            />
+            Loading data...
           </div>
+        ) : virtual ? (
+          <VirtualTreeList
+            renderedNodes={virtualization.renderedNodes}
+            topPadding={virtualization.topPadding}
+            bottomPadding={virtualization.bottomPadding}
+          />
         ) : (
           treeData.map((node) => (
             <TreeNodeComponent key={node.id} node={node} depth={0} />

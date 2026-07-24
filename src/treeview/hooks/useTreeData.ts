@@ -1,32 +1,74 @@
-import { useMemo, useState, useCallback } from 'react';
-import type { TreeNode, FieldMapping } from '../types/tree.types';
+import { useMemo, useState, useCallback, useEffect } from 'react';
+import type { TreeNode, FieldMapping, SortOrderType } from '../types/tree.types';
 import { mapNodeFields } from '../utils/fieldMapper';
 import { buildTree, createMaps, flattenTree, updateNodeInTree, moveNodeInTree, sortTreeNodes } from '../utils/treeBuilder';
+import { Query } from '@syncfusion/react-data';
+
+function isDataManager(ds: any): boolean {
+  return ds && typeof ds === 'object' && (typeof ds.executeQuery === 'function' || typeof ds.executeLocal === 'function');
+}
 
 export const useTreeData = (
-  dataSource: unknown[],
+  dataSource: unknown[] | any,
   fieldMapping?: FieldMapping,
   expandedNodes?: Set<string | number>,
-  sortOrder?: (a: TreeNode, b: TreeNode) => number
+  sortOrder?: SortOrderType,
+  query?: any,
+  loadChildrenProp?: (node: TreeNode) => Promise<TreeNode[]>
 ) => {
-  const initialTreeData = useMemo(() => {
-    const mapped = dataSource.map(item => mapNodeFields(item, fieldMapping));
+  const [data, setData] = useState<TreeNode[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
+
+  // Helper to parse and structure raw item list
+  const processRawData = useCallback((rawItems: any[]): TreeNode[] => {
+    if (!Array.isArray(rawItems)) return [];
+    const mapped = rawItems.map(item => mapNodeFields(item, fieldMapping));
     const isFlat = mapped.length > 0 && mapped.some(n => n.parentId != null && (!n.children || n.children.length === 0));
 
-    let treeData = isFlat ? buildTree(mapped) : mapped;
+    let tree = isFlat ? buildTree(mapped) : mapped;
     if (sortOrder) {
-      treeData = sortTreeNodes(treeData, sortOrder);
+      tree = sortTreeNodes(tree, sortOrder);
     }
-    return treeData;
-  }, [dataSource, fieldMapping, sortOrder]);
+    return tree;
+  }, [fieldMapping, sortOrder]);
 
-  const [data, setData] = useState<TreeNode[]>(initialTreeData);
-  const [prevSource, setPrevSource] = useState({ dataSource, fieldMapping, sortOrder });
+  // Load root data from array or DataManager
+  useEffect(() => {
+    let isSubscribed = true;
 
-  if (prevSource.dataSource !== dataSource || prevSource.fieldMapping !== fieldMapping || prevSource.sortOrder !== sortOrder) {
-    setPrevSource({ dataSource, fieldMapping, sortOrder });
-    setData(initialTreeData);
-  }
+    if (isDataManager(dataSource)) {
+      setIsLoadingData(true);
+      const activeQuery = query || new Query();
+      
+      const executeRes = dataSource.executeQuery ? dataSource.executeQuery(activeQuery) : dataSource.executeLocal(activeQuery);
+
+      if (executeRes && typeof executeRes.then === 'function') {
+        executeRes.then((response: any) => {
+          if (!isSubscribed) return;
+          const items = Array.isArray(response) ? response : (response?.result || response?.records || []);
+          setData(processRawData(items));
+          setIsLoadingData(false);
+        }).catch((err: any) => {
+          console.error('Error fetching DataManager treeview data:', err);
+          if (isSubscribed) setIsLoadingData(false);
+        });
+      } else {
+        const items = Array.isArray(executeRes) ? executeRes : (executeRes?.result || executeRes?.records || []);
+        setData(processRawData(items));
+        setIsLoadingData(false);
+      }
+    } else if (Array.isArray(dataSource)) {
+      setData(processRawData(dataSource));
+      setIsLoadingData(false);
+    } else {
+      setData([]);
+      setIsLoadingData(false);
+    }
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [dataSource, query, processRawData]);
 
   const { nodeMap, parentMap } = useMemo(() => {
     return createMaps(data);
@@ -53,8 +95,43 @@ export const useTreeData = (
   }, []);
 
   const appendChildren = useCallback((parentId: string | number, children: TreeNode[]) => {
-    setData(prev => updateNodeInTree(prev, parentId, { children: children, hasChildren: true, loading: false }));
-  }, []);
+    const mappedChildren = children.map(item => (item.id !== undefined && item.text !== undefined ? item : mapNodeFields(item, fieldMapping)));
+    setData(prev => updateNodeInTree(prev, parentId, { children: mappedChildren, hasChildren: true, loading: false }));
+  }, [fieldMapping]);
 
-  return { treeData: data, nodeMap, parentMap, visibleNodes, updateNode, moveNode, setNodeLoading, appendChildren };
+  // Remote / Dynamic Child Fetching
+  const fetchRemoteChildren = useCallback(async (node: TreeNode): Promise<TreeNode[]> => {
+    if (loadChildrenProp) {
+      return await loadChildrenProp(node);
+    }
+
+    if (isDataManager(dataSource)) {
+      const parentField = fieldMapping?.parentId || 'parentId';
+      const childQuery = new Query().where(parentField, 'equal', node.id);
+      
+      const executeRes = dataSource.executeQuery ? dataSource.executeQuery(childQuery) : dataSource.executeLocal(childQuery);
+      let response = executeRes;
+      if (executeRes && typeof executeRes.then === 'function') {
+        response = await executeRes;
+      }
+      
+      const items = Array.isArray(response) ? response : (response?.result || response?.records || []);
+      return items.map((item: any) => mapNodeFields(item, fieldMapping));
+    }
+
+    return [];
+  }, [dataSource, fieldMapping, loadChildrenProp]);
+
+  return {
+    treeData: data,
+    nodeMap,
+    parentMap,
+    visibleNodes,
+    isLoadingData,
+    updateNode,
+    moveNode,
+    setNodeLoading,
+    appendChildren,
+    fetchRemoteChildren
+  };
 };

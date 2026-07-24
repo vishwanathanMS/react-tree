@@ -1,8 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext } from 'react';
-import type { TreeNode, TreeViewProps } from '../types/tree.types';
+import type { TreeNode, TreeViewProps, TreeItemSlotContext } from '../types/tree.types';
 
-interface TreeContextType extends TreeViewProps {
+export interface TreeContextType extends TreeViewProps {
   treeData: TreeNode[];
   expandedNodes: Set<string | number>;
   selectedNodes: Set<string | number>;
@@ -14,6 +14,7 @@ interface TreeContextType extends TreeViewProps {
     dropPosition: 'before' | 'inside' | 'after' | null;
   };
   editingNodeId: string | number | null;
+  slotRenderer?: (ctx: TreeItemSlotContext) => React.ReactNode;
   toggleExpand: (nodeId: string | number) => void;
   toggleSelect: (nodeId: string | number, multi?: boolean) => void;
   toggleCheck: (nodeId: string | number) => void;
@@ -22,6 +23,7 @@ interface TreeContextType extends TreeViewProps {
   handleNodeEdit: (nodeId: string | number, value: string) => void;
   handleDrop: (sourceId: string | number, targetId: string | number, position: 'before' | 'inside' | 'after') => void;
 }
+
 
 const TreeContext = createContext<TreeContextType | null>(null);
 

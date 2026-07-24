@@ -1,24 +1,27 @@
-import React, { useState, useRef, useEffect } from 'react';
-import type { TreeNode } from '../../types/tree.types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import type { TreeNode, TreeItemSlotContext } from '../../types/tree.types';
 import { useTreeContext } from '../../context/TreeContext';
 import { TreeIcon } from '../atoms/TreeIcon';
 import { TreeCheckbox } from '../atoms/TreeCheckbox';
 import { TreeLabel } from '../atoms/TreeLabel';
+import { SlotContext } from '../slots/TreeviewItemSlot';
 
 interface TreeNodeContentProps {
   node: TreeNode;
   isExpanded: boolean;
+  depth?: number;
 }
 
-export const TreeNodeContent: React.FC<TreeNodeContentProps> = ({ node, isExpanded }) => {
+export const TreeNodeContent: React.FC<TreeNodeContentProps> = ({ node, isExpanded, depth = 0 }) => {
   const ctx = useTreeContext();
   const [inputValue, setInputValue] = useState(node.text || '');
   const [prevEditing, setPrevEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hasChildren = !!node.children?.length || !!node.hasChildren || !!ctx.loadChildren;
+  const hasChildren = !!node.children?.length || !!node.hasChildren || !!ctx.loadChildren || !!ctx.loadOnDemand;
   const isEditing = ctx.editingNodeId === node.id;
   const checkState = ctx.checkedNodes.get(node.id) || 'unchecked';
+  const isSelected = ctx.selectedNodes.has(node.id);
 
   if (isEditing !== prevEditing) {
     setPrevEditing(isEditing);
@@ -53,24 +56,51 @@ export const TreeNodeContent: React.FC<TreeNodeContentProps> = ({ node, isExpand
     }
   };
 
+  const slotContextValue: TreeItemSlotContext = useMemo(
+    () => ({
+      node,
+      isExpanded,
+      isSelected,
+      checkState,
+      loading: !!node.loading,
+      hasChildren,
+      depth,
+      toggleExpand: () => ctx.toggleExpand(node.id),
+      toggleSelect: (multi) => ctx.toggleSelect(node.id, multi),
+      toggleCheck: () => ctx.toggleCheck(node.id),
+      isEditing,
+      inputValue,
+      setInputValue,
+      commitEdit,
+    }),
+    [node, isExpanded, isSelected, checkState, hasChildren, depth, isEditing, inputValue, ctx]
+  );
+
   return (
-    <>
-      <TreeIcon expanded={isExpanded} hasChildren={hasChildren} loading={node.loading} onClick={handleIconClick} />
-      {ctx.checkable && <TreeCheckbox checkState={checkState} onChange={() => ctx.toggleCheck(node.id)} />}
-      
-      {isEditing ? (
-        <input
-          ref={inputRef}
-          className="tree-input-edit"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={handleKeyDown}
-          onClick={(e) => e.stopPropagation()}
-        />
+    <SlotContext.Provider value={slotContextValue}>
+      {ctx.slotRenderer ? (
+        ctx.slotRenderer(slotContextValue)
       ) : (
-        <TreeLabel node={node} renderNode={ctx.renderNode} />
+        <>
+          <TreeIcon expanded={isExpanded} hasChildren={hasChildren} loading={node.loading} onClick={handleIconClick} />
+          {ctx.checkable && <TreeCheckbox checkState={checkState} onChange={() => ctx.toggleCheck(node.id)} />}
+
+          {isEditing ? (
+            <input
+              ref={inputRef}
+              className="tree-input-edit"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={handleKeyDown}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <TreeLabel node={node} renderNode={ctx.renderNode} />
+          )}
+        </>
       )}
-    </>
+    </SlotContext.Provider>
   );
 };
+

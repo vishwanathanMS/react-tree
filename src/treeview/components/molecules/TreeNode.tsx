@@ -24,8 +24,11 @@ export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChild
 
   const handleClick = (e: React.MouseEvent) => {
     if (isEditing) return;
+    if (ctx.checkOnClick && ctx.checkable) {
+      ctx.toggleCheck(node.id);
+    }
     if (ctx.expandOnClick && !e.ctrlKey && !e.shiftKey) {
-      if (node.children?.length || node.hasChildren) {
+      if (node.children?.length || node.hasChildren || ctx.loadChildren || ctx.loadOnDemand) {
         ctx.toggleExpand(node.id);
       }
     }
@@ -55,10 +58,10 @@ export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChild
 
     const rect = nodeRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
+
     const y = e.clientY - rect.top;
     let position: 'before' | 'inside' | 'after' = 'inside';
-    
+
     if (y < rect.height * 0.25) position = 'before';
     else if (y > rect.height * 0.75) position = 'after';
 
@@ -100,9 +103,9 @@ export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChild
 
   const childrenList: TreeNodeChildItem[] | undefined = useMemo(() => {
     if (nestedChildren !== undefined) return nestedChildren;
-    if (!isExpanded || !node.children) return undefined;
+    if (!node.children || node.children.length === 0) return undefined;
     return node.children.map((c) => ({ node: c }));
-  }, [nestedChildren, isExpanded, node.children]);
+  }, [nestedChildren, node.children]);
 
   const hasChildrenToDisplay = !!childrenList && childrenList.length > 0;
   const hasChildrenForAria = (node.children && node.children.length > 0) || node.hasChildren;
@@ -128,21 +131,26 @@ export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChild
         style={dragOverStyle}
         data-testid={`tree-node-${node.id}`}
       >
-        <TreeNodeContent node={node} isExpanded={isExpanded} />
+        <TreeNodeContent node={node} isExpanded={isExpanded} depth={depth} />
       </div>
 
       {hasChildrenToDisplay && (
-        <div className="tree-node-children" role="group">
-          {childrenList!.map((childItem) => (
-            <TreeNode
-              key={childItem.node.id}
-              node={childItem.node}
-              depth={depth + 1}
-              nestedChildren={childItem.children}
-            />
-          ))}
+        <div className={`tree-node-children-wrapper ${isExpanded ? 'tree-expanded' : ''}`}>
+          <div className="tree-node-children-inner">
+            <div className="tree-node-children" role="group">
+              {childrenList!.map((childItem) => (
+                <TreeNode
+                  key={childItem.node.id}
+                  node={childItem.node}
+                  depth={depth + 1}
+                  nestedChildren={childItem.children}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 };
+

@@ -1,4 +1,5 @@
-import type { TreeNode } from '../types/tree.types';
+import type { TreeNode, SortOrderType } from '../types/tree.types';
+
 
 export const buildTree = (nodes: TreeNode[]): TreeNode[] => {
   const nodeMap = new Map<string | number, TreeNode>();
@@ -113,9 +114,24 @@ export const moveNodeInTree = (nodes: TreeNode[], sourceId: string | number, tar
   return insertNode(withoutSource);
 };
 
-export const sortTreeNodes = (nodes: TreeNode[], sortFn: (a: TreeNode, b: TreeNode) => number): TreeNode[] => {
-  return [...nodes].sort(sortFn).map(node => ({
+export const sortTreeNodes = (nodes: TreeNode[], sortOrder?: SortOrderType): TreeNode[] => {
+  if (!sortOrder || sortOrder === 'None') return nodes;
+
+  let compareFn: (a: TreeNode, b: TreeNode) => number;
+
+  if (typeof sortOrder === 'function') {
+    compareFn = sortOrder;
+  } else if (sortOrder === 'Ascending') {
+    compareFn = (a, b) => (a.text || String(a.id)).localeCompare(b.text || String(b.id));
+  } else if (sortOrder === 'Descending') {
+    compareFn = (a, b) => (b.text || String(b.id)).localeCompare(a.text || String(a.id));
+  } else {
+    return nodes;
+  }
+
+  return [...nodes].sort(compareFn).map(node => ({
     ...node,
-    children: node.children ? sortTreeNodes(node.children, sortFn) : undefined
+    children: node.children ? sortTreeNodes(node.children, sortOrder) : undefined
   }));
 };
+

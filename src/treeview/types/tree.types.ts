@@ -9,6 +9,7 @@ export interface TreeNode {
   disabled?: boolean;
   hasChildren?: boolean;
   data?: unknown;
+  icon?: string;
   loading?: boolean;
 }
 
@@ -21,12 +22,17 @@ export interface FieldMapping {
   icon?: string;
 }
 
+export type SortOrderType = 'Ascending' | 'Descending' | 'None' | ((a: TreeNode, b: TreeNode) => number);
+
 export interface TreeViewProps {
-  dataSource: unknown[];
+  dataSource: unknown[] | any; // Array or Syncfusion DataManager
+  query?: any; // Syncfusion Query instance
   fieldMapping?: FieldMapping;
   selectable?: boolean;
   multiple?: boolean;
   checkable?: boolean;
+  checkOnClick?: boolean;
+  loadOnDemand?: boolean;
   editable?: boolean;
   draggable?: boolean;
   expandOnClick?: boolean;
@@ -45,7 +51,8 @@ export interface TreeViewProps {
   virtual?: boolean;
   itemHeight?: number;
   height?: number | string;
-  sortOrder?: (a: TreeNode, b: TreeNode) => number;
+  sortOrder?: SortOrderType;
+  children?: React.ReactNode;
 }
 
 export type CheckState = 'checked' | 'unchecked' | 'indeterminate';
@@ -54,3 +61,21 @@ export interface DropPosition {
   targetId: string | number;
   type: 'before' | 'inside' | 'after';
 }
+
+export interface TreeItemSlotContext {
+  node: TreeNode;
+  isExpanded: boolean;
+  isSelected: boolean;
+  checkState: CheckState;
+  loading: boolean;
+  hasChildren: boolean;
+  depth: number;
+  toggleExpand: () => void;
+  toggleSelect: (multi?: boolean) => void;
+  toggleCheck: () => void;
+  isEditing: boolean;
+  inputValue: string;
+  setInputValue: (val: string) => void;
+  commitEdit: () => void;
+}
+
