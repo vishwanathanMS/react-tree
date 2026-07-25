@@ -5,6 +5,7 @@ import { TreeNodeContent } from './TreeNodeContent';
 
 export interface TreeNodeChildItem {
   node: ITreeNode;
+  depth?: number;
   children?: TreeNodeChildItem[];
 }
 
@@ -12,9 +13,10 @@ export interface TreeNodeProps {
   node: ITreeNode;
   depth?: number;
   nestedChildren?: TreeNodeChildItem[];
+  isVirtualRow?: boolean;
 }
 
-export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChildren }) => {
+export const TreeNode: React.FC<TreeNodeProps> = React.memo(({ node, depth = 0, nestedChildren, isVirtualRow = false }) => {
   const ctx = useTreeContext();
   const isExpanded = ctx.expandedNodes.has(node.id);
   const isSelected = ctx.selectedNodes.has(node.id);
@@ -104,10 +106,10 @@ export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChild
   const childrenList: TreeNodeChildItem[] | undefined = useMemo(() => {
     if (nestedChildren !== undefined) return nestedChildren;
     if (!node.children || node.children.length === 0) return undefined;
-    return node.children.map((c) => ({ node: c }));
-  }, [nestedChildren, node.children]);
+    return node.children.map((c) => ({ node: c, depth: depth + 1 }));
+  }, [nestedChildren, node.children, depth]);
 
-  const hasChildrenToDisplay = !!childrenList && childrenList.length > 0;
+  const hasChildrenToDisplay = !isVirtualRow && !!childrenList && childrenList.length > 0;
   const hasChildrenForAria = (node.children && node.children.length > 0) || node.hasChildren;
 
   return (
@@ -142,7 +144,7 @@ export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChild
                 <TreeNode
                   key={childItem.node.id}
                   node={childItem.node}
-                  depth={depth + 1}
+                  depth={childItem.depth ?? depth + 1}
                   nestedChildren={childItem.children}
                 />
               ))}
@@ -152,5 +154,6 @@ export const TreeNode: React.FC<TreeNodeProps> = ({ node, depth = 0, nestedChild
       )}
     </div>
   );
-};
+});
+
 

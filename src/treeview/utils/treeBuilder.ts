@@ -42,6 +42,40 @@ export const flattenTree = (
   return flatNodes;
 };
 
+export interface TreeNodeChildItem {
+  node: TreeNode;
+  depth: number;
+  children?: TreeNodeChildItem[];
+}
+
+export const createNestedSlice = (
+  visibleSlice: { node: TreeNode; depth: number }[]
+): TreeNodeChildItem[] => {
+  const result: TreeNodeChildItem[] = [];
+  const stack: { item: TreeNodeChildItem; depth: number }[] = [];
+
+  for (const { node, depth } of visibleSlice) {
+    const item: TreeNodeChildItem = { node, depth, children: [] };
+
+    while (stack.length > 0 && stack[stack.length - 1].depth >= depth) {
+      stack.pop();
+    }
+
+    if (stack.length === 0) {
+      result.push(item);
+    } else {
+      const parent = stack[stack.length - 1].item;
+      if (!parent.children) parent.children = [];
+      parent.children.push(item);
+    }
+
+    stack.push({ item, depth });
+  }
+
+  return result;
+};
+
+
 export const createMaps = (nodes: TreeNode[]) => {
   const nodeMap = new Map<string | number, TreeNode>();
   const parentMap = new Map<string | number, string | number>();
