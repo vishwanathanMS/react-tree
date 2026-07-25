@@ -739,6 +739,8 @@ export const Virtualized100kNodes = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={['root-1', 'root-2']}
       />
     </div>
@@ -912,6 +914,8 @@ export const Virtualized500kDeepNesting = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={expandedKeys}
       />
     </div>
@@ -1170,6 +1174,8 @@ export const Virtualized100kAllExpanded = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={allParentIds}
       />
     </div>
@@ -1269,6 +1275,8 @@ export const Virtualized100kAllChecked = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         checked={checked}
         defaultExpanded={allParentIds}
         onNodeCheck={(_node, map) => {
@@ -1364,6 +1372,8 @@ export const SelfReferentialVirtualized = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={defaultExpandedKeys}
       />
     </div>
@@ -1450,6 +1460,8 @@ export const SelfReferentialVirtualizedCustomMapping = () => {
         itemHeight={34}
         expandOnClick
         selectable
+        editable
+        draggable
         defaultExpanded={defaultExpandedKeys}
         renderNode={(node) => {
           const item = node as unknown as { employeeId: string; title: string };
@@ -1544,6 +1556,8 @@ export const SelfReferentialVirtualizedInteractive = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={['node-r-1', 'node-r-2']}
         onNodeSelect={(node) => setSelectedId(node.id)}
       />
@@ -1583,6 +1597,8 @@ export const CustomSubSlots = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={['node-r-1', 'node-c-1']}
         onNodeSelect={(node) => setSelectedId(node.id)}
       >
@@ -1630,6 +1646,8 @@ export const IndividualSubSlotChildrenCustomization = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={['node-r-1', 'node-c-1']}
       >
         <TreeviewItemContent>
@@ -1704,6 +1722,8 @@ export const CustomSubSlotsWithCustomElementsAndText = () => {
         expandOnClick
         selectable
         checkable
+        editable
+        draggable
         defaultExpanded={['node-r-1', 'node-c-1']}
         onNodeSelect={(node) => setSelectedId(node.id)}
       >
