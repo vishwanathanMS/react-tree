@@ -48,6 +48,10 @@ export interface TreeNodeChildItem {
   children?: TreeNodeChildItem[];
 }
 
+/**
+ * Converts a flat visible-node slice (with depth info) into a nested structure
+ * used by the virtual renderer. This is the single canonical implementation.
+ */
 export const createNestedSlice = (
   visibleSlice: { node: TreeNode; depth: number }[]
 ): TreeNodeChildItem[] => {
@@ -96,43 +100,78 @@ export const createMaps = (nodes: TreeNode[]) => {
   return { nodeMap, parentMap };
 };
 
+/**
+ * Returns a new tree array with the given node updated.
+ * Short-circuits recursion once the target node is found to avoid
+ * unnecessary O(n) traversal of unaffected branches.
+ */
 export const updateNodeInTree = (nodes: TreeNode[], id: string | number, updates: Partial<TreeNode>): TreeNode[] => {
-  return nodes.map(node => {
-    if (node.id === id) {
-      return { ...node, ...updates };
-    }
-    if (node.children) {
-      return { ...node, children: updateNodeInTree(node.children, id, updates) };
-    }
-    return node;
-  });
-};
-
-export const moveNodeInTree = (nodes: TreeNode[], sourceId: string | number, targetId: string | number, position: 'before' | 'inside' | 'after'): TreeNode[] => {
-  let sourceNode: TreeNode | null = null;
-  const removeNode = (list: TreeNode[]): TreeNode[] => {
-    return list.filter(n => {
-      if (n.id === sourceId) {
-        sourceNode = { ...n };
-        return false;
+  let found = false;
+  const walk = (list: TreeNode[]): TreeNode[] => {
+    if (found) return list; // short-circuit once found
+    return list.map(node => {
+      if (node.id === id) {
+        found = true;
+        return { ...node, ...updates };
       }
-      if (n.children) {
-        n.children = removeNode(n.children);
+      if (!found && node.children) {
+        const newChildren = walk(node.children);
+        return found ? { ...node, children: newChildren } : node;
       }
-      return true;
+      return node;
     });
   };
+  return walk(nodes);
+};
+
+/**
+ * Moves a node within the tree. Does NOT mutate source nodes — always returns
+ * new objects for modified branches.
+ */
+export const moveNodeInTree = (
+  nodes: TreeNode[],
+  sourceId: string | number,
+  targetId: string | number,
+  position: 'before' | 'inside' | 'after'
+): TreeNode[] => {
+  if (sourceId === targetId) return nodes;
+
+  let sourceNode: TreeNode | null = null;
+
+  const removeNode = (list: TreeNode[]): TreeNode[] => {
+    return list.reduce<TreeNode[]>((acc, n) => {
+      if (n.id === sourceId) {
+        sourceNode = { ...n }; // capture a copy
+        return acc;
+      }
+      if (n.children) {
+        acc.push({ ...n, children: removeNode(n.children) });
+      } else {
+        acc.push(n);
+      }
+      return acc;
+    }, []);
+  };
+
+  const withoutSource = removeNode(nodes);
+  if (!sourceNode) return nodes;
+
+  const capturedSource = sourceNode as TreeNode;
 
   const insertNode = (list: TreeNode[]): TreeNode[] => {
     const res: TreeNode[] = [];
     for (const n of list) {
-      if (n.id === targetId && sourceNode) {
+      if (n.id === targetId) {
+        const targetParentId = n.parentId;
         if (position === 'before') {
-          res.push(sourceNode, n);
+          capturedSource.parentId = targetParentId;
+          res.push(capturedSource, n);
         } else if (position === 'after') {
-          res.push(n, sourceNode);
+          capturedSource.parentId = targetParentId;
+          res.push(n, capturedSource);
         } else {
-          res.push({ ...n, children: [...(n.children || []), sourceNode] });
+          capturedSource.parentId = n.id;
+          res.push({ ...n, children: [...(n.children || []), capturedSource], hasChildren: true });
         }
       } else {
         const newNode = { ...n };
@@ -143,8 +182,6 @@ export const moveNodeInTree = (nodes: TreeNode[], sourceId: string | number, tar
     return res;
   };
 
-  const withoutSource = removeNode(nodes);
-  if (!sourceNode) return nodes;
   return insertNode(withoutSource);
 };
 
@@ -168,4 +205,3 @@ export const sortTreeNodes = (nodes: TreeNode[], sortOrder?: SortOrderType): Tre
     children: node.children ? sortTreeNodes(node.children, sortOrder) : undefined
   }));
 };
-

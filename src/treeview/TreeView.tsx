@@ -1,6 +1,6 @@
 import React, { useImperativeHandle, forwardRef, useRef, useCallback, useMemo, useState } from 'react';
 import { TreeViewProps, TreeNode, TreeItemSlotContext } from './types/tree.types';
-import { TreeProvider, TreeContextType } from './context/TreeContext';
+import { TreeProvider, TreeStaticContextType, TreeStateContextType } from './context/TreeContext';
 import { useTreeTheme } from './theme/useTreeTheme';
 import { useTreeData } from './hooks/useTreeData';
 import { useTreeExpansion } from './hooks/useTreeExpansion';
@@ -9,8 +9,10 @@ import { useTreeCheckbox } from './hooks/useTreeCheckbox';
 import { useTreeEditing } from './hooks/useTreeEditing';
 import { useTreeDragDrop } from './hooks/useTreeDragDrop';
 import { useTreeKeyboard } from './hooks/useTreeKeyboard';
-import { TreeNodeChildItem, TreeNode as TreeNodeComponent } from './components/molecules/TreeNode';
+import { TreeNode as TreeNodeComponent } from './components/molecules/TreeNode';
 import { TreeviewItemContent, TreeViewItemContent } from './components/slots/TreeviewItemSlot';
+import { createNestedSlice } from './utils/treeBuilder';
+
 export interface TreeViewRef {
   expand: (id: string | number) => void;
   collapse: (id: string | number) => void;
@@ -19,31 +21,6 @@ export interface TreeViewRef {
   select: (id: string | number) => void;
   check: (id: string | number) => void;
   getNode: (id: string | number) => TreeNode | undefined;
-}
-
-function createNestedSlice(visibleNodes: { node: TreeNode; depth: number }[]): TreeNodeChildItem[] {
-  const result: TreeNodeChildItem[] = [];
-  const stack: { item: TreeNodeChildItem; depth: number }[] = [];
-
-  for (const { node, depth } of visibleNodes) {
-    const item: TreeNodeChildItem = { node, depth, children: [] };
-
-    while (stack.length > 0 && stack[stack.length - 1].depth >= depth) {
-      stack.pop();
-    }
-
-    if (stack.length === 0) {
-      result.push(item);
-    } else {
-      const parent = stack[stack.length - 1].item;
-      if (!parent.children) parent.children = [];
-      parent.children.push(item);
-    }
-
-    stack.push({ item, depth });
-  }
-
-  return result;
 }
 
 export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
@@ -77,6 +54,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     height = 400,
     sortOrder,
     children,
+    renderNode,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -131,7 +109,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
   const selection = useTreeSelection(isMultiSelection, controlledSelected, onNodeSelect, (id) => nodeMap.get(id));
   const checkbox = useTreeCheckbox(nodeMap, parentMap, controlledChecked, onNodeCheck);
 
-  // Unified Toggle Handlers
+  // Unified Toggle Handlers — all wrapped in useCallback for stable references
   const handleToggleCheck = useCallback(
     (nodeId: string | number) => {
       checkbox.toggleCheck(nodeId);
@@ -183,17 +161,13 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
 
   const handleNodeEditInternal = useCallback((nodeId: string | number, value: string) => {
     editing.commitEdit(nodeId, value);
-    if (!onNodeEdit) {
-      updateNode(nodeId, { text: value });
-    }
-  }, [editing, onNodeEdit, updateNode]);
+    updateNode(nodeId, { text: value });
+  }, [editing, updateNode]);
 
   const handleDropInternal = useCallback((sourceId: string | number, targetId: string | number, position: 'before' | 'inside' | 'after') => {
     dnd.handleDrop(sourceId, targetId, position);
-    if (!onNodeDrop) {
-      moveNode(sourceId, targetId, position);
-    }
-  }, [dnd, onNodeDrop, moveNode]);
+    moveNode(sourceId, targetId, position);
+  }, [dnd, moveNode]);
 
   // Keyboard navigation
   const { handleKeyDown } = useTreeKeyboard({
@@ -216,12 +190,13 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     expand: expansion.expand,
     collapse: expansion.collapse,
     expandAll: () => {
-      const allIds = Array.from(nodeMap.values()).filter(n => n.children?.length || n.hasChildren).map(n => n.id);
-      allIds.forEach(id => expansion.expand(id));
+      // Single setState call via expandBulk instead of N separate calls
+      const allIds = Array.from(nodeMap.values())
+        .filter(n => n.children?.length || n.hasChildren)
+        .map(n => n.id);
+      expansion.expandBulk(allIds);
     },
-    collapseAll: () => {
-      Array.from(expansion.expanded).forEach(id => expansion.collapse(id));
-    },
+    collapseAll: expansion.collapseAll,
     select: (id: string | number) => handleToggleSelect(id, false),
     check: handleToggleCheck,
     getNode: (id: string | number) => nodeMap.get(id),
@@ -237,16 +212,26 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     return set;
   }, [checkable, selection.selected, checkbox.checkedNodes]);
 
-  // Context Value
-  const contextValue: TreeContextType = useMemo(
+  // ---------------------------------------------------------------------------
+  // Static context value — only changes when stable callbacks / config change.
+  // Because we avoid spreading `props` and only list specific fields,
+  // this memo actually bails out on re-renders where config hasn't changed.
+  // ---------------------------------------------------------------------------
+  const staticContextValue = useMemo<TreeStaticContextType>(
     () => ({
-      ...props,
-      treeData,
-      expandedNodes: expansion.expanded,
-      selectedNodes: combinedSelected,
-      checkedNodes: checkbox.checkedNodes,
-      dragState: dnd.dragState,
-      editingNodeId: editing.editingNodeId,
+      selectable,
+      multiple,
+      checkable,
+      checkOnClick,
+      loadOnDemand,
+      editable,
+      draggable,
+      expandOnClick,
+      virtual,
+      itemHeight,
+      height,
+      renderNode,
+      loadChildren,
       slotRenderer,
       toggleExpand: handleToggleExpand,
       toggleSelect: handleToggleSelect,
@@ -257,13 +242,19 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
       handleDrop: handleDropInternal,
     }),
     [
-      props,
-      treeData,
-      expansion.expanded,
-      combinedSelected,
-      checkbox.checkedNodes,
-      dnd.dragState,
-      editing.editingNodeId,
+      selectable,
+      multiple,
+      checkable,
+      checkOnClick,
+      loadOnDemand,
+      editable,
+      draggable,
+      expandOnClick,
+      virtual,
+      itemHeight,
+      height,
+      renderNode,
+      loadChildren,
       slotRenderer,
       handleToggleExpand,
       handleToggleSelect,
@@ -275,9 +266,45 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     ]
   );
 
+  // ---------------------------------------------------------------------------
+  // State context value — changes on every state update (expansion, selection…)
+  // Only tree nodes that subscribe via useTreeStateContext() re-render.
+  // ---------------------------------------------------------------------------
+  const stateContextValue = useMemo<TreeStateContextType>(
+    () => ({
+      treeData,
+      expandedNodes: expansion.expanded,
+      selectedNodes: combinedSelected,
+      checkedNodes: checkbox.checkedNodes,
+      dragState: dnd.dragState,
+      editingNodeId: editing.editingNodeId,
+    }),
+    [
+      treeData,
+      expansion.expanded,
+      combinedSelected,
+      checkbox.checkedNodes,
+      dnd.dragState,
+      editing.editingNodeId,
+    ]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Virtualization — throttle scroll events with requestAnimationFrame
+  // ---------------------------------------------------------------------------
+  const scrollTopRef = useRef(0);
+  const rafPending = useRef(false);
   const [scrollTop, setScrollTop] = useState(0);
+
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
+    scrollTopRef.current = e.currentTarget.scrollTop;
+    if (!rafPending.current) {
+      rafPending.current = true;
+      requestAnimationFrame(() => {
+        setScrollTop(scrollTopRef.current);
+        rafPending.current = false;
+      });
+    }
   }, []);
 
   const { renderedNodes, topPadding, bottomPadding } = useMemo(() => {
@@ -307,7 +334,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     : { outline: 'none' };
 
   return (
-    <TreeProvider value={contextValue}>
+    <TreeProvider staticValue={staticContextValue} stateValue={stateContextValue}>
       <div
         ref={containerRef}
         className="tree-container"

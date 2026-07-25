@@ -1,7 +1,9 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useCallback } from 'react';
 import type { TreeNode as ITreeNode } from '../../types/tree.types';
-import { useTreeContext } from '../../context/TreeContext';
+import { useTreeStaticContext, useTreeStateContext } from '../../context/TreeContext';
 import { TreeNodeContent } from './TreeNodeContent';
+
+let globalDraggedNodeId: string | number | null = null;
 
 export interface TreeNodeChildItem {
   node: ITreeNode;
@@ -17,46 +19,58 @@ export interface TreeNodeProps {
 }
 
 export const TreeNode: React.FC<TreeNodeProps> = React.memo(({ node, depth = 0, nestedChildren, isVirtualRow = false }) => {
-  const ctx = useTreeContext();
-  const isExpanded = ctx.expandedNodes.has(node.id);
-  const isSelected = ctx.selectedNodes.has(node.id);
-  const isEditing = ctx.editingNodeId === node.id;
+  // Split context reads: static (never changes) vs state (changes on interaction)
+  const staticCtx = useTreeStaticContext();
+  const stateCtx = useTreeStateContext();
+
+  const isExpanded = stateCtx.expandedNodes.has(node.id);
+  const isSelected = stateCtx.selectedNodes.has(node.id);
+  const isEditing = stateCtx.editingNodeId === node.id;
+  const isDisabled = !!node.disabled;
 
   const nodeRef = useRef<HTMLDivElement>(null);
 
-  const handleClick = (e: React.MouseEvent) => {
+  // All handlers wrapped in useCallback so React.memo can bail out correctly.
+  // Dependencies are stable callbacks from staticCtx (which itself is memoized).
+  const handleClick = useCallback((e: React.MouseEvent) => {
     if (isEditing) return;
-    if (ctx.checkOnClick && ctx.checkable) {
-      ctx.toggleCheck(node.id);
+    if (staticCtx.checkOnClick && staticCtx.checkable) {
+      staticCtx.toggleCheck(node.id);
     }
-    if (ctx.expandOnClick && !e.ctrlKey && !e.shiftKey) {
-      if (node.children?.length || node.hasChildren || ctx.loadChildren || ctx.loadOnDemand) {
-        ctx.toggleExpand(node.id);
+    if (staticCtx.expandOnClick && !e.ctrlKey && !e.shiftKey) {
+      if (node.children?.length || node.hasChildren || staticCtx.loadChildren || staticCtx.loadOnDemand) {
+        staticCtx.toggleExpand(node.id);
       }
     }
-    if (ctx.selectable) {
-      ctx.toggleSelect(node.id, e.ctrlKey || e.metaKey);
+    if (staticCtx.selectable) {
+      staticCtx.toggleSelect(node.id, e.ctrlKey || e.metaKey);
     }
-  };
+  }, [isEditing, staticCtx, node.id, node.children, node.hasChildren]);
 
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    if (ctx.editable && !isEditing) {
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (staticCtx.editable && !isEditing) {
       e.stopPropagation();
-      ctx.setEditingNodeId(node.id);
+      staticCtx.setEditingNodeId(node.id);
     }
-  };
+  }, [staticCtx, isEditing, node.id]);
 
-  const handleDragStart = (e: React.DragEvent) => {
-    if (!ctx.draggable || isEditing) return;
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    if (!staticCtx.draggable || isEditing) return;
+    globalDraggedNodeId = node.id;
     e.dataTransfer.setData('text/plain', String(node.id));
-    ctx.setDragState({ isDragging: true, draggedNodeId: node.id });
+    e.dataTransfer.effectAllowed = 'move';
+    staticCtx.setDragState({ isDragging: true, draggedNodeId: node.id });
     e.stopPropagation();
-  };
+  }, [staticCtx, isEditing, node.id]);
 
-  const handleDragOver = (e: React.DragEvent) => {
-    if (!ctx.draggable || !ctx.dragState.isDragging || ctx.dragState.draggedNodeId === node.id) return;
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!staticCtx.draggable) return;
+    const draggedId = stateCtx.dragState.draggedNodeId ?? globalDraggedNodeId;
+    if (draggedId == null || String(draggedId) === String(node.id)) return;
+
     e.preventDefault();
     e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 
     const rect = nodeRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -67,34 +81,40 @@ export const TreeNode: React.FC<TreeNodeProps> = React.memo(({ node, depth = 0, 
     if (y < rect.height * 0.25) position = 'before';
     else if (y > rect.height * 0.75) position = 'after';
 
-    ctx.setDragState({ dropTargetId: node.id, dropPosition: position });
-  };
+    staticCtx.setDragState({ dropTargetId: node.id, dropPosition: position });
+  }, [staticCtx, stateCtx.dragState.draggedNodeId, node.id]);
 
-  const handleDragLeave = () => {
-    if (!ctx.draggable) return;
-    if (ctx.dragState.dropTargetId === node.id) {
-      ctx.setDragState({ dropTargetId: null, dropPosition: null });
+  const handleDragLeave = useCallback(() => {
+    if (!staticCtx.draggable) return;
+    if (stateCtx.dragState.dropTargetId === node.id) {
+      staticCtx.setDragState({ dropTargetId: null, dropPosition: null });
     }
-  };
+  }, [staticCtx, stateCtx.dragState.dropTargetId, node.id]);
 
-  const handleDrop = (e: React.DragEvent) => {
-    if (!ctx.draggable || !ctx.dragState.draggedNodeId) return;
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!staticCtx.draggable) return;
+    const draggedId = stateCtx.dragState.draggedNodeId ?? globalDraggedNodeId;
+    if (!draggedId) return;
+
     e.preventDefault();
     e.stopPropagation();
 
-    if (ctx.dragState.draggedNodeId !== node.id && ctx.dragState.dropPosition) {
-      ctx.handleDrop(ctx.dragState.draggedNodeId, node.id, ctx.dragState.dropPosition);
+    const position = stateCtx.dragState.dropPosition || 'inside';
+    if (String(draggedId) !== String(node.id)) {
+      staticCtx.handleDrop(draggedId, node.id, position);
     }
-  };
+    globalDraggedNodeId = null;
+  }, [staticCtx, stateCtx.dragState, node.id]);
 
-  const handleDragEnd = () => {
-    if (!ctx.draggable) return;
-    ctx.setDragState({ isDragging: false, draggedNodeId: null, dropTargetId: null, dropPosition: null });
-  };
+  const handleDragEnd = useCallback(() => {
+    globalDraggedNodeId = null;
+    if (!staticCtx.draggable) return;
+    staticCtx.setDragState({ isDragging: false, draggedNodeId: null, dropTargetId: null, dropPosition: null });
+  }, [staticCtx]);
 
   // Drop indicator styles
-  const isDropTarget = ctx.dragState.dropTargetId === node.id;
-  const dropPos = ctx.dragState.dropPosition;
+  const isDropTarget = stateCtx.dragState.dropTargetId === node.id;
+  const dropPos = stateCtx.dragState.dropPosition;
 
   const rowStyle: React.CSSProperties = useMemo(() => {
     const base: React.CSSProperties = { paddingLeft: `${depth * 20 + 8}px` };
@@ -123,11 +143,14 @@ export const TreeNode: React.FC<TreeNodeProps> = React.memo(({ node, depth = 0, 
         role="treeitem"
         aria-expanded={hasChildrenForAria ? isExpanded : undefined}
         aria-selected={isSelected}
+        aria-level={depth + 1}
+        aria-label={node.text || String(node.id)}
+        aria-disabled={isDisabled || undefined}
         data-node-id={node.id}
         tabIndex={isEditing ? -1 : 0}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
-        draggable={ctx.draggable && !isEditing}
+        draggable={staticCtx.draggable && !isEditing}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -155,4 +178,4 @@ export const TreeNode: React.FC<TreeNodeProps> = React.memo(({ node, depth = 0, 
   );
 });
 
-
+TreeNode.displayName = 'TreeNode';

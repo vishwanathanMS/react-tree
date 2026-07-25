@@ -7,32 +7,58 @@ interface TreeIconProps {
   onClick: (e: React.MouseEvent) => void;
 }
 
-export const TreeIcon: React.FC<TreeIconProps> = ({ expanded, hasChildren, loading, onClick }) => {
+// Hoisted module-level style objects — never re-created on render
+const loadingStyle: React.CSSProperties = {
+  width: 24,
+  height: 24,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+const placeholderStyle: React.CSSProperties = {
+  width: 24,
+  display: 'inline-block',
+};
+
+const expandedIconStyle: React.CSSProperties = {
+  width: 24,
+  height: 24,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  transform: 'rotate(90deg)',
+  transition: 'var(--tree-transition, transform 0.2s)',
+};
+
+const collapsedIconStyle: React.CSSProperties = {
+  width: 24,
+  height: 24,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  transform: 'rotate(0deg)',
+  transition: 'var(--tree-transition, transform 0.2s)',
+};
+
+export const TreeIcon: React.FC<TreeIconProps> = React.memo(({ expanded, hasChildren, loading, onClick }) => {
   if (loading) {
-    return (
-      <span style={{ width: 24, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-        ⏳
-      </span>
-    );
+    return <span style={loadingStyle}>⏳</span>;
   }
 
-  if (!hasChildren) return <span style={{ width: 24, display: 'inline-block' }} />;
+  if (!hasChildren) return <span style={placeholderStyle} />;
 
   return (
     <span
       onClick={onClick}
-      style={{
-        width: 24,
-        height: 24,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-        transition: 'var(--tree-transition, transform 0.2s)',
-      }}
+      // Use pre-computed style object based on expanded state
+      style={expanded ? expandedIconStyle : collapsedIconStyle}
     >
       ▶
     </span>
   );
-};
+});
+
+TreeIcon.displayName = 'TreeIcon';

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import { CheckState } from '../../types/tree.types';
 
 interface TreeCheckboxProps {
@@ -6,19 +6,22 @@ interface TreeCheckboxProps {
   onChange: () => void;
 }
 
-export const TreeCheckbox: React.FC<TreeCheckboxProps> = ({ checkState, onChange }) => {
-  const checkboxRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (checkboxRef.current) {
-      checkboxRef.current.indeterminate = checkState === 'indeterminate';
+export const TreeCheckbox: React.FC<TreeCheckboxProps> = React.memo(({ checkState, onChange }) => {
+  /**
+   * Use a callback ref instead of useRef + useEffect to set the indeterminate
+   * property. This avoids an extra effect execution and correctly handles the
+   * case where the element is first mounted already in indeterminate state.
+   */
+  const setIndeterminate = (el: HTMLInputElement | null) => {
+    if (el) {
+      el.indeterminate = checkState === 'indeterminate';
     }
-  }, [checkState]);
+  };
 
   return (
     <input
       type="checkbox"
-      ref={checkboxRef}
+      ref={setIndeterminate}
       className="tree-checkbox"
       checked={checkState === 'checked'}
       onChange={(e) => {
@@ -28,4 +31,6 @@ export const TreeCheckbox: React.FC<TreeCheckboxProps> = ({ checkState, onChange
       onClick={(e) => e.stopPropagation()}
     />
   );
-};
+});
+
+TreeCheckbox.displayName = 'TreeCheckbox';

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import type { TreeNode } from '../types/tree.types';
 
 export interface UseTreeKeyboardOptions {
@@ -38,6 +38,18 @@ export const useTreeKeyboard = (options: UseTreeKeyboardOptions) => {
   } = options;
 
   const pendingFocusIdRef = useRef<string | number | null>(null);
+
+  /**
+   * O(1) node → index lookup map, rebuilt only when visibleNodes reference changes.
+   * Avoids a linear findIndex scan on every keydown event.
+   */
+  const nodeIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < visibleNodes.length; i++) {
+      map.set(String(visibleNodes[i].node.id), i);
+    }
+    return map;
+  }, [visibleNodes]);
 
   // Attempt to focus pending node after virtual scroll re-render
   useEffect(() => {
@@ -112,7 +124,8 @@ export const useTreeKeyboard = (options: UseTreeKeyboardOptions) => {
       let currentIndex = -1;
 
       if (nodeIdStr != null) {
-        currentIndex = visibleNodes.findIndex(item => String(item.node.id) === nodeIdStr);
+        // O(1) lookup via pre-built map instead of O(n) findIndex
+        currentIndex = nodeIndexMap.get(nodeIdStr) ?? -1;
       }
 
       // Fallback: If container itself has focus and no node is active yet, default to first visible node
@@ -171,7 +184,7 @@ export const useTreeKeyboard = (options: UseTreeKeyboardOptions) => {
           } else {
             const parentId = parentMap?.get(node.id) ?? node.parentId;
             if (parentId != null) {
-              const parentIndex = visibleNodes.findIndex(item => String(item.node.id) === String(parentId));
+              const parentIndex = nodeIndexMap.get(String(parentId)) ?? -1;
               if (parentIndex !== -1) {
                 focusNodeIndex(parentIndex);
               }
@@ -209,6 +222,7 @@ export const useTreeKeyboard = (options: UseTreeKeyboardOptions) => {
     },
     [
       visibleNodes,
+      nodeIndexMap,
       expandedNodes,
       parentMap,
       editable,
@@ -224,4 +238,3 @@ export const useTreeKeyboard = (options: UseTreeKeyboardOptions) => {
 
   return { handleKeyDown, focusNodeIndex };
 };
-
