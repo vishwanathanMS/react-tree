@@ -26,7 +26,7 @@ function createNestedSlice(visibleNodes: { node: TreeNode; depth: number }[]): T
   const stack: { item: TreeNodeChildItem; depth: number }[] = [];
 
   for (const { node, depth } of visibleNodes) {
-    const item: TreeNodeChildItem = { node, children: [] };
+    const item: TreeNodeChildItem = { node, depth, children: [] };
 
     while (stack.length > 0 && stack[stack.length - 1].depth >= depth) {
       stack.pop();
@@ -324,7 +324,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
               <TreeNodeComponent
                 key={item.node.id}
                 node={item.node}
-                depth={0}
+                depth={item.depth ?? 0}
                 nestedChildren={item.children}
               />
             ))}

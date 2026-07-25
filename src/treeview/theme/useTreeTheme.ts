@@ -1,13 +1,13 @@
 import { useEffect } from 'react';
-import { defaultThemeCSS } from './material3Tokens';
+import { customThemeCSS } from './treeTheme';
 
 export const useTreeTheme = () => {
   useEffect(() => {
-    const styleId = 'treeview-material3-theme';
+    const styleId = 'treeview-custom-theme';
     if (!document.getElementById(styleId)) {
       const style = document.createElement('style');
       style.id = styleId;
-      style.textContent = defaultThemeCSS;
+      style.textContent = customThemeCSS;
       document.head.appendChild(style);
     }
   }, []);

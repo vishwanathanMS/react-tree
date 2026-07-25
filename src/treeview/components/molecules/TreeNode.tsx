@@ -96,12 +96,15 @@ export const TreeNode: React.FC<TreeNodeProps> = React.memo(({ node, depth = 0, 
   const isDropTarget = ctx.dragState.dropTargetId === node.id;
   const dropPos = ctx.dragState.dropPosition;
 
-  let dragOverStyle: React.CSSProperties = {};
-  if (isDropTarget && dropPos) {
-    if (dropPos === 'before') dragOverStyle = { borderTop: '2px solid var(--tree-focus-ring)' };
-    if (dropPos === 'after') dragOverStyle = { borderBottom: '2px solid var(--tree-focus-ring)' };
-    if (dropPos === 'inside') dragOverStyle = { backgroundColor: 'var(--tree-hover)' };
-  }
+  const rowStyle: React.CSSProperties = useMemo(() => {
+    const base: React.CSSProperties = { paddingLeft: `${depth * 20 + 8}px` };
+    if (isDropTarget && dropPos) {
+      if (dropPos === 'before') base.borderTop = '2px solid var(--tree-focus-ring)';
+      if (dropPos === 'after') base.borderBottom = '2px solid var(--tree-focus-ring)';
+      if (dropPos === 'inside') base.backgroundColor = 'var(--tree-hover)';
+    }
+    return base;
+  }, [depth, isDropTarget, dropPos]);
 
   const childrenList: TreeNodeChildItem[] | undefined = useMemo(() => {
     if (nestedChildren !== undefined) return nestedChildren;
@@ -130,26 +133,22 @@ export const TreeNode: React.FC<TreeNodeProps> = React.memo(({ node, depth = 0, 
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onDragEnd={handleDragEnd}
-        style={dragOverStyle}
+        style={rowStyle}
         data-testid={`tree-node-${node.id}`}
       >
         <TreeNodeContent node={node} isExpanded={isExpanded} depth={depth} />
       </div>
 
       {hasChildrenToDisplay && (
-        <div className={`tree-node-children-wrapper ${isExpanded ? 'tree-expanded' : ''}`}>
-          <div className="tree-node-children-inner">
-            <div className="tree-node-children" role="group">
-              {childrenList!.map((childItem) => (
-                <TreeNode
-                  key={childItem.node.id}
-                  node={childItem.node}
-                  depth={childItem.depth ?? depth + 1}
-                  nestedChildren={childItem.children}
-                />
-              ))}
-            </div>
-          </div>
+        <div className={`tree-node-children ${isExpanded ? 'tree-expanded' : ''}`} role="group">
+          {childrenList!.map((childItem) => (
+            <TreeNode
+              key={childItem.node.id}
+              node={childItem.node}
+              depth={childItem.depth ?? depth + 1}
+              nestedChildren={childItem.children}
+            />
+          ))}
         </div>
       )}
     </div>
